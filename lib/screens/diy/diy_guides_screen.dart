@@ -4,6 +4,9 @@ import '../../app/app_theme.dart';
 import '../../core/widgets/section_header.dart';
 import '../../mock/mock_data.dart';
 import '../../models/diy_guide.dart';
+import '../../repositories/diy_repository.dart';
+import '../../repositories/saved_guide_repository.dart';
+import '../../services/auth_service.dart';
 import 'diy_guide_detail_screen.dart';
 
 class DiyGuidesScreen extends StatelessWidget {
@@ -49,7 +52,63 @@ class DiyGuidesScreen extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        ...mockDiyGuides.map((guide) => _DiyGuideCard(guide: guide)),
+        StreamBuilder<List<DiyGuide>>(
+          stream: DiyRepository().watchActiveGuides(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final guides = snapshot.hasData && snapshot.data!.isNotEmpty
+                ? snapshot.data!
+                : mockDiyGuides;
+
+            if (snapshot.hasError) {
+              return Column(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: Text(
+                      'Showing sample guides while Firestore is unavailable.',
+                      style: TextStyle(color: EcoLoopTheme.mutedText),
+                    ),
+                  ),
+                  ...guides.map((guide) => _DiyGuideCard(guide: guide)),
+                ],
+              );
+            }
+
+            final userId = AuthService().currentUser?.uid;
+            if (userId == null) {
+              return Column(
+                children: guides
+                    .map((guide) => _DiyGuideCard(guide: guide))
+                    .toList(),
+              );
+            }
+
+            return StreamBuilder<Set<String>>(
+              stream: SavedGuideRepository().watchSavedGuideIds(userId),
+              builder: (context, savedSnapshot) {
+                final savedGuideIds = savedSnapshot.data ?? const <String>{};
+                return Column(
+                  children: guides
+                      .map(
+                        (guide) => _DiyGuideCard(
+                          guide: guide,
+                          userId: userId,
+                          isSaved: savedGuideIds.contains(guide.id),
+                        ),
+                      )
+                      .toList(),
+                );
+              },
+            );
+          },
+        ),
       ],
     );
   }
@@ -80,9 +139,26 @@ class _FilterChip extends StatelessWidget {
 }
 
 class _DiyGuideCard extends StatelessWidget {
-  const _DiyGuideCard({required this.guide});
+  const _DiyGuideCard({required this.guide, this.userId, this.isSaved = false});
 
   final DiyGuide guide;
+  final String? userId;
+  final bool isSaved;
+
+  Future<void> _toggleSaved(BuildContext context) async {
+    final currentUserId = userId;
+    if (currentUserId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to save DIY guides.')),
+      );
+      return;
+    }
+
+    await SavedGuideRepository().toggleSavedGuide(
+      userId: currentUserId,
+      guide: guide,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -106,11 +182,23 @@ class _DiyGuideCard extends StatelessWidget {
                 width: double.infinity,
                 color: EcoLoopTheme.softGreen,
                 alignment: Alignment.center,
-                child: const Icon(
-                  Icons.handyman_outlined,
-                  size: 44,
-                  color: EcoLoopTheme.primary,
-                ),
+                child: guide.imageUrl.isEmpty
+                    ? const Icon(
+                        Icons.handyman_outlined,
+                        size: 44,
+                        color: EcoLoopTheme.primary,
+                      )
+                    : Image.network(
+                        guide.imageUrl,
+                        width: double.infinity,
+                        height: 120,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const Icon(
+                          Icons.handyman_outlined,
+                          size: 44,
+                          color: EcoLoopTheme.primary,
+                        ),
+                      ),
               ),
               Padding(
                 padding: const EdgeInsets.all(12),
@@ -134,6 +222,12 @@ class _DiyGuideCard extends StatelessWidget {
                       children: [
                         _MetaPill(guide.difficultyLevel),
                         const SizedBox(width: 8),
+                        if (guide.hasVideo) ...[
+                          const Icon(Icons.play_circle_outline, size: 14),
+                          const SizedBox(width: 4),
+                          const Text('Video', style: TextStyle(fontSize: 12)),
+                          const SizedBox(width: 8),
+                        ],
                         const Icon(Icons.schedule, size: 14),
                         const SizedBox(width: 4),
                         Text(
@@ -141,7 +235,17 @@ class _DiyGuideCard extends StatelessWidget {
                           style: const TextStyle(fontSize: 12),
                         ),
                         const Spacer(),
-                        const Icon(Icons.bookmark_border, size: 20),
+                        IconButton(
+                          tooltip: isSaved ? 'Unsave guide' : 'Save guide',
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _toggleSaved(context),
+                          icon: Icon(
+                            isSaved ? Icons.bookmark : Icons.bookmark_border,
+                            color: isSaved
+                                ? EcoLoopTheme.primary
+                                : EcoLoopTheme.mutedText,
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
