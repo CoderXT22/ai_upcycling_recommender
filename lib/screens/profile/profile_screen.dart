@@ -7,6 +7,7 @@ import '../../repositories/community_repository.dart';
 import '../../repositories/user_repository.dart';
 import '../../services/auth_service.dart';
 import '../auth/login_screen.dart';
+import '../projects/my_projects_screen.dart';
 import 'saved_diy_guides_screen.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -73,6 +74,18 @@ class ProfileScreen extends StatelessWidget {
                 title: 'Edit Profile',
                 subtitle: 'Update name, phone number, and preferred area',
                 onTap: () => _showEditProfileSheet(context, appUser),
+              ),
+              _ProfileTile(
+                icon: Icons.inventory_2_outlined,
+                title: 'My Projects',
+                subtitle: 'Track started DIY projects and impact reports',
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const MyProjectsScreen(),
+                    ),
+                  );
+                },
               ),
               _ProfileTile(
                 icon: Icons.bookmark_border,

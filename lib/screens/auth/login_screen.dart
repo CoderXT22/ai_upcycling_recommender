@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import '../../app/app_theme.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/primary_button.dart';
+import '../../models/app_user.dart';
 import '../../repositories/user_repository.dart';
 import '../../services/auth_service.dart';
 import '../navigation/main_navigation_screen.dart';
+import '../organisations/organisation_home_screen.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -46,8 +48,16 @@ class _LoginScreenState extends State<LoginScreen> {
         await _userRepository.updateLastLogin(user.uid);
       }
       if (!mounted) return;
+      final appUser = user == null
+          ? null
+          : await _userRepository.fetchUserProfile(user.uid);
+      if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+        MaterialPageRoute(
+          builder: (_) => appUser?.role == AppUserRoles.organisationUser
+              ? const OrganisationHomeScreen()
+              : const MainNavigationScreen(),
+        ),
       );
     } catch (error) {
       setState(() => _errorMessage = _friendlyAuthError(error));

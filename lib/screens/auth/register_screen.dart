@@ -5,9 +5,12 @@ import '../../core/constants/selangor_areas.dart';
 import '../../core/widgets/app_logo.dart';
 import '../../core/widgets/primary_button.dart';
 import '../../models/app_user.dart';
+import '../../models/organisation_profile.dart';
+import '../../repositories/organisation_repository.dart';
 import '../../repositories/user_repository.dart';
 import '../../services/auth_service.dart';
 import '../navigation/main_navigation_screen.dart';
+import '../organisations/organisation_home_screen.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -21,11 +24,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _organisationNameController = TextEditingController();
+  final _organisationDescriptionController = TextEditingController();
+  final _organisationWebsiteController = TextEditingController();
+  final _registrationNumberController = TextEditingController();
   final _authService = AuthService();
   final _userRepository = UserRepository();
+  final _organisationRepository = OrganisationRepository();
   bool _isLoading = false;
   String? _errorMessage;
   String _preferredArea = SelangorAreas.values.first;
+  String _accountType = AppUserRoles.normalUser;
+  String _organisationType = 'Company';
+
+  bool get _isOrganisationRegistration =>
+      _accountType == AppUserRoles.organisationUser;
 
   @override
   void dispose() {
@@ -33,10 +46,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailController.dispose();
     _phoneController.dispose();
     _passwordController.dispose();
+    _organisationNameController.dispose();
+    _organisationDescriptionController.dispose();
+    _organisationWebsiteController.dispose();
+    _registrationNumberController.dispose();
     super.dispose();
   }
 
   Future<void> _register() async {
+    final validationMessage = _validateForm();
+    if (validationMessage != null) {
+      setState(() => _errorMessage = validationMessage);
+      return;
+    }
+
+    final accountType = _accountType;
+    final isOrganisationRegistration = _isOrganisationRegistration;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -57,13 +83,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
           uid: user.uid,
           displayName: _nameController.text.trim(),
           email: user.email ?? _emailController.text.trim(),
+          role: accountType,
           phoneNumber: _phoneController.text.trim(),
           preferredArea: _preferredArea,
         ),
       );
+      if (isOrganisationRegistration) {
+        await _organisationRepository.createOrganisationProfile(
+          OrganisationProfile(
+            id: user.uid,
+            userId: user.uid,
+            organisationName: _organisationNameController.text.trim(),
+            organisationType: _organisationType,
+            description: _organisationDescriptionController.text.trim(),
+            email: user.email ?? _emailController.text.trim(),
+            phone: _phoneController.text.trim(),
+            location: _preferredArea,
+            website: _organisationWebsiteController.text.trim(),
+            registrationNumber: _registrationNumberController.text.trim(),
+          ),
+        );
+      }
       if (!mounted) return;
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const MainNavigationScreen()),
+        MaterialPageRoute(
+          builder: (_) => isOrganisationRegistration
+              ? const OrganisationHomeScreen()
+              : const MainNavigationScreen(),
+        ),
       );
     } catch (error) {
       setState(() => _errorMessage = _friendlyAuthError(error));
@@ -72,6 +119,31 @@ class _RegisterScreenState extends State<RegisterScreen> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  String? _validateForm() {
+    if (_nameController.text.trim().isEmpty) {
+      return _isOrganisationRegistration
+          ? 'Enter the contact person name.'
+          : 'Enter your full name.';
+    }
+    if (_emailController.text.trim().isEmpty) {
+      return 'Enter an email address.';
+    }
+    if (_phoneController.text.trim().isEmpty) {
+      return 'Enter a phone number.';
+    }
+    if (_passwordController.text.length < 6) {
+      return 'Password should be at least 6 characters.';
+    }
+    if (!_isOrganisationRegistration) return null;
+    if (_organisationNameController.text.trim().isEmpty) {
+      return 'Enter the organisation name.';
+    }
+    if (_organisationDescriptionController.text.trim().isEmpty) {
+      return 'Enter a short organisation description.';
+    }
+    return null;
   }
 
   String _friendlyAuthError(Object error) {
@@ -110,11 +182,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   style: TextStyle(color: EcoLoopTheme.mutedText),
                 ),
                 const SizedBox(height: 28),
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(
+                      value: AppUserRoles.normalUser,
+                      icon: Icon(Icons.person_outline),
+                      label: Text('User'),
+                    ),
+                    ButtonSegment(
+                      value: AppUserRoles.organisationUser,
+                      icon: Icon(Icons.business_outlined),
+                      label: Text('Organisation'),
+                    ),
+                  ],
+                  selected: {_accountType},
+                  onSelectionChanged: (values) {
+                    setState(() => _accountType = values.first);
+                  },
+                ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: _nameController,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.person_outline),
-                    hintText: 'Full name',
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.person_outline),
+                    hintText: _isOrganisationRegistration
+                        ? 'Contact person name'
+                        : 'Full name',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -135,12 +228,80 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     hintText: 'Phone number',
                   ),
                 ),
+                if (_isOrganisationRegistration) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _organisationNameController,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.business_outlined),
+                      hintText: 'Organisation name',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    initialValue: _organisationType,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.category_outlined),
+                      labelText: 'Organisation type',
+                    ),
+                    items:
+                        const [
+                              'Company',
+                              'NGO',
+                              'Social enterprise',
+                              'School or university',
+                              'Recycling centre',
+                              'CSR team',
+                              'Local council',
+                              'Event organiser',
+                            ]
+                            .map(
+                              (type) => DropdownMenuItem(
+                                value: type,
+                                child: Text(type),
+                              ),
+                            )
+                            .toList(),
+                    onChanged: (value) {
+                      if (value != null) {
+                        setState(() => _organisationType = value);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _organisationDescriptionController,
+                    minLines: 2,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.description_outlined),
+                      hintText: 'Organisation description',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _organisationWebsiteController,
+                    keyboardType: TextInputType.url,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.link_outlined),
+                      hintText: 'Website or official link (optional)',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _registrationNumberController,
+                    decoration: const InputDecoration(
+                      prefixIcon: Icon(Icons.badge_outlined),
+                      hintText: 'Registration number (optional)',
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
                   initialValue: _preferredArea,
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.location_on_outlined),
-                    labelText: 'Preferred Selangor area',
+                    labelText: 'Selangor area',
                   ),
                   items: SelangorAreas.values
                       .map(
