@@ -1,20 +1,154 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../app/app_theme.dart';
 import '../../core/widgets/primary_button.dart';
 import '../../models/diy_guide.dart';
-import '../../repositories/completed_guide_repository.dart';
+import '../../models/project_session.dart';
+import '../../repositories/project_image_repository.dart';
+import '../../repositories/project_session_repository.dart';
 import '../../repositories/saved_guide_repository.dart';
 import '../../services/auth_service.dart';
 import '../../services/link_launcher_service.dart';
+import '../projects/my_projects_screen.dart';
 
-class DiyGuideDetailScreen extends StatelessWidget {
+class DiyGuideDetailScreen extends StatefulWidget {
   const DiyGuideDetailScreen({super.key, required this.guide});
 
   final DiyGuide guide;
 
   @override
+  State<DiyGuideDetailScreen> createState() => _DiyGuideDetailScreenState();
+}
+
+class _DiyGuideDetailScreenState extends State<DiyGuideDetailScreen> {
+  final _projectSessionRepository = ProjectSessionRepository();
+  final _projectImageRepository = ProjectImageRepository();
+  bool _isStartingProject = false;
+
+  Future<void> _startProject(String userId) async {
+    final choice = await _showBeforePhotoDialog();
+    if (choice == null || choice == _BeforePhotoChoice.cancel) return;
+
+    XFile? beforePhoto;
+    if (choice == _BeforePhotoChoice.camera ||
+        choice == _BeforePhotoChoice.gallery) {
+      beforePhoto = await _pickBeforePhoto(
+        choice == _BeforePhotoChoice.camera
+            ? ImageSource.camera
+            : ImageSource.gallery,
+      );
+      if (beforePhoto == null) return;
+    }
+
+    setState(() => _isStartingProject = true);
+    try {
+      final sessionId = await _projectSessionRepository.createSession(
+        userId: userId,
+        guide: widget.guide,
+      );
+
+      if (beforePhoto != null) {
+        final beforeImageUrl = await _projectImageRepository.uploadBeforePhoto(
+          userId: userId,
+          sessionId: sessionId,
+          image: beforePhoto,
+        );
+        await _projectSessionRepository.updateBeforePhoto(
+          sessionId: sessionId,
+          beforeImageUrl: beforeImageUrl,
+        );
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            beforePhoto == null
+                ? 'Project started. You can add before evidence later.'
+                : 'Project started with before photo.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error is FirebaseException
+                ? 'Unable to start project: ${error.code}'
+                : 'Unable to start project. Please try again.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isStartingProject = false);
+    }
+  }
+
+  Future<_BeforePhotoChoice?> _showBeforePhotoDialog() {
+    return showDialog<_BeforePhotoChoice>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Start Project'),
+        content: const Text(
+          'Before photos improve AI-assisted verification and report credibility. If you skip now, your evidence completeness score may be lower.',
+        ),
+        actions: [
+          TextButton.icon(
+            onPressed: () =>
+                Navigator.of(context).pop(_BeforePhotoChoice.cancel),
+            icon: const Icon(Icons.close),
+            label: const Text('Cancel'),
+          ),
+          TextButton.icon(
+            onPressed: () => Navigator.of(context).pop(_BeforePhotoChoice.skip),
+            icon: const Icon(Icons.skip_next_outlined),
+            label: const Text('Skip For Now'),
+          ),
+          FilledButton.icon(
+            onPressed: () =>
+                Navigator.of(context).pop(_BeforePhotoChoice.gallery),
+            icon: const Icon(Icons.photo_library_outlined),
+            label: const Text('Upload'),
+          ),
+          FilledButton.icon(
+            onPressed: () =>
+                Navigator.of(context).pop(_BeforePhotoChoice.camera),
+            icon: const Icon(Icons.camera_alt_outlined),
+            label: const Text('Take Photo'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<XFile?> _pickBeforePhoto(ImageSource source) async {
+    try {
+      return ImagePicker().pickImage(
+        source: source,
+        imageQuality: 82,
+        maxWidth: 1400,
+      );
+    } catch (_) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Unable to select before photo.')),
+      );
+      return null;
+    }
+  }
+
+  void _openMyProjects() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const MyProjectsScreen()));
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final guide = widget.guide;
     final userId = AuthService().currentUser?.uid;
 
     return Scaffold(
@@ -116,83 +250,13 @@ class DiyGuideDetailScreen extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 18),
-          if (userId == null)
-            PrimaryButton(
-              label: 'Mark as Completed',
-              icon: Icons.check_circle_outline,
-              onPressed: () {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Please log in to mark guides completed.'),
-                  ),
-                );
-              },
-            )
-          else
-            StreamBuilder<bool>(
-              stream: CompletedGuideRepository().watchIsCompleted(
-                userId: userId,
-                guideId: guide.id,
-              ),
-              builder: (context, snapshot) {
-                final isCompleted = snapshot.data ?? false;
-                return PrimaryButton(
-                  label: isCompleted ? 'Completed' : 'Mark as Completed',
-                  icon: isCompleted
-                      ? Icons.check_circle
-                      : Icons.check_circle_outline,
-                  onPressed: isCompleted
-                      ? () async {
-                          final shouldUndo = await showDialog<bool>(
-                            context: context,
-                            builder: (dialogContext) => AlertDialog(
-                              title: const Text('Undo completion?'),
-                              content: Text(
-                                'Remove "${guide.title}" from your completed DIY list?',
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () =>
-                                      Navigator.of(dialogContext).pop(false),
-                                  child: const Text('Cancel'),
-                                ),
-                                FilledButton(
-                                  onPressed: () =>
-                                      Navigator.of(dialogContext).pop(true),
-                                  child: const Text('Remove'),
-                                ),
-                              ],
-                            ),
-                          );
-                          if (shouldUndo != true) return;
-                          await CompletedGuideRepository().unmarkCompleted(
-                            userId: userId,
-                            guideId: guide.id,
-                          );
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'DIY guide removed from completed list.',
-                              ),
-                            ),
-                          );
-                        }
-                      : () async {
-                          await CompletedGuideRepository().markCompleted(
-                            userId: userId,
-                            guide: guide,
-                          );
-                          if (!context.mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('DIY guide marked as completed.'),
-                            ),
-                          );
-                        },
-                );
-              },
-            ),
+          _ProjectAction(
+            userId: userId,
+            guide: guide,
+            isStartingProject: _isStartingProject,
+            onStartProject: userId == null ? null : () => _startProject(userId),
+            onOpenMyProjects: _openMyProjects,
+          ),
           const SizedBox(height: 18),
           const Text(
             'Materials',
@@ -230,3 +294,83 @@ class DiyGuideDetailScreen extends StatelessWidget {
     );
   }
 }
+
+class _ProjectAction extends StatelessWidget {
+  const _ProjectAction({
+    required this.userId,
+    required this.guide,
+    required this.isStartingProject,
+    required this.onStartProject,
+    required this.onOpenMyProjects,
+  });
+
+  final String? userId;
+  final DiyGuide guide;
+  final bool isStartingProject;
+  final VoidCallback? onStartProject;
+  final VoidCallback onOpenMyProjects;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentUserId = userId;
+    if (currentUserId == null) {
+      return PrimaryButton(
+        label: 'Start Project',
+        icon: Icons.play_circle_outline,
+        onPressed: () {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please log in to start a project.')),
+          );
+        },
+      );
+    }
+
+    return StreamBuilder<ProjectSession?>(
+      stream: ProjectSessionRepository().watchActiveGuideSession(
+        userId: currentUserId,
+        guideId: guide.id,
+      ),
+      builder: (context, snapshot) {
+        final activeSession = snapshot.data;
+        if (activeSession != null) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Card(
+                child: ListTile(
+                  leading: const Icon(
+                    Icons.timelapse_outlined,
+                    color: EcoLoopTheme.primary,
+                  ),
+                  title: const Text(
+                    'Project In Progress',
+                    style: TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  subtitle: Text(
+                    activeSession.hasBeforePhoto
+                        ? 'Before photo saved. Continue from My Projects.'
+                        : 'Before photo missing. You can add it when submitting later.',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              PrimaryButton(
+                label: 'View My Projects',
+                icon: Icons.inventory_2_outlined,
+                onPressed: onOpenMyProjects,
+              ),
+            ],
+          );
+        }
+
+        return PrimaryButton(
+          label: isStartingProject ? 'Starting...' : 'Start Project',
+          icon: Icons.play_circle_outline,
+          onPressed: isStartingProject ? () {} : onStartProject!,
+        );
+      },
+    );
+  }
+}
+
+enum _BeforePhotoChoice { camera, gallery, skip, cancel }
