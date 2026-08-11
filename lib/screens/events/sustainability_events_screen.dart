@@ -46,7 +46,7 @@ class SustainabilityEventsScreen extends StatelessWidget {
                         style: TextStyle(color: EcoLoopTheme.mutedText),
                       ),
                     ),
-                    ...mockEvents.map((event) => _EventCard(event: event)),
+                    _EventListSections(events: mockEvents),
                   ],
                 );
               }
@@ -55,15 +55,42 @@ class SustainabilityEventsScreen extends StatelessWidget {
                 return const _EmptyEventsState();
               }
 
-              return Column(
-                children: snapshot.data!
-                    .map((event) => _EventCard(event: event))
-                    .toList(),
-              );
+              return _EventListSections(events: snapshot.data!);
             },
           ),
         ],
       ),
+    );
+  }
+}
+
+class _EventListSections extends StatelessWidget {
+  const _EventListSections({required this.events});
+
+  final List<SustainabilityEvent> events;
+
+  @override
+  Widget build(BuildContext context) {
+    final currentEvents = events.where((event) => !event.isPast).toList();
+    final pastEvents = events.where((event) => event.isPast).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (currentEvents.isEmpty)
+          const _SectionMessage('No upcoming or ongoing events right now.')
+        else
+          ...currentEvents.map((event) => _EventCard(event: event)),
+        if (pastEvents.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          const Text(
+            'Past Events',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 8),
+          ...pastEvents.map((event) => _EventCard(event: event)),
+        ],
+      ],
     );
   }
 }
@@ -108,6 +135,10 @@ class _EventCard extends StatelessWidget {
                 event.title,
                 style: const TextStyle(fontWeight: FontWeight.w900),
               ),
+              if (event.isPast) ...[
+                const SizedBox(height: 6),
+                const Chip(label: Text('Past Event')),
+              ],
               const SizedBox(height: 3),
               Text(
                 event.organizer,
@@ -151,7 +182,7 @@ class _EventCard extends StatelessWidget {
                 spacing: 12,
                 runSpacing: 6,
                 children: [
-                  _EventMeta(icon: Icons.event, label: event.date),
+                  _EventMeta(icon: Icons.event, label: event.dateText),
                   if (event.displayLocation.isNotEmpty)
                     _EventMeta(
                       icon: Icons.place_outlined,
@@ -218,6 +249,25 @@ class _EventMeta extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _SectionMessage extends StatelessWidget {
+  const _SectionMessage(this.message);
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Text(
+          message,
+          style: const TextStyle(color: EcoLoopTheme.mutedText),
+        ),
       ),
     );
   }

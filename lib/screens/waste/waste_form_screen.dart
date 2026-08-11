@@ -12,6 +12,16 @@ import '../../models/waste_item.dart';
 import '../../services/ai_detection_service.dart';
 import 'recommendation_result_screen.dart';
 
+const _materialOptions = [
+  'PET plastic',
+  'Glass',
+  'Metal',
+  'Paper',
+  'Fabric',
+  'Electronic parts',
+  'Mixed waste',
+];
+
 class WasteFormScreen extends StatefulWidget {
   const WasteFormScreen({super.key});
 
@@ -114,8 +124,8 @@ class _WasteFormScreenState extends State<WasteFormScreen> {
   void _applyDetectedResult(AiDetectionResult result) {
     setState(() {
       _objectController.text = result.object;
-      _material = result.material;
-      _category = result.category;
+      _material = _materialDropdownValue(result.material);
+      _category = _categoryDropdownValue(result.category);
       _source = 'ai';
     });
   }
@@ -206,8 +216,10 @@ class _WasteFormScreenState extends State<WasteFormScreen> {
                           _source == 'ai' &&
                           _objectController.text.trim() ==
                               _detectedResult!.object &&
-                          _material == _detectedResult!.material &&
-                          _category == _detectedResult!.category,
+                          _material ==
+                              _materialDropdownValue(_detectedResult!.material) &&
+                          _category ==
+                              _categoryDropdownValue(_detectedResult!.category),
                       onApply: () => _applyDetectedResult(_detectedResult!),
                     ),
                   ],
@@ -226,23 +238,14 @@ class _WasteFormScreenState extends State<WasteFormScreen> {
                     key: ValueKey('material-$_material'),
                     initialValue: _material,
                     hint: const Text('Select Material...'),
-                    items:
-                        const [
-                              'PET plastic',
-                              'Glass',
-                              'Metal',
-                              'Paper',
-                              'Fabric',
-                              'Electronic parts',
-                              'Mixed waste',
-                            ]
-                            .map(
-                              (value) => DropdownMenuItem(
-                                value: value,
-                                child: Text(value),
-                              ),
-                            )
-                            .toList(),
+                    items: _materialOptions
+                        .map(
+                          (value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(value),
+                          ),
+                        )
+                        .toList(),
                     onChanged: (value) {
                       setState(() {
                         _material = value;
@@ -295,6 +298,22 @@ class _WasteFormScreenState extends State<WasteFormScreen> {
       ],
     );
   }
+}
+
+String _materialDropdownValue(String value) {
+  final normalized = value.toLowerCase().trim();
+  for (final option in _materialOptions) {
+    if (normalized == option.toLowerCase()) return option;
+  }
+  return value;
+}
+
+String _categoryDropdownValue(String value) {
+  final normalized = value.toLowerCase().replaceAll('_', ' ').trim();
+  for (final option in WasteCategories.values) {
+    if (normalized == option.toLowerCase()) return option;
+  }
+  return value;
 }
 
 class _AiDetectionPreview extends StatelessWidget {

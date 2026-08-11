@@ -8,6 +8,9 @@ class SustainabilityEvent {
     required this.description,
     this.benefit = '',
     required this.date,
+    this.startDate,
+    this.rawEndDate,
+    this.endDate = '',
     this.locationName = '',
     this.address = '',
     this.state = 'Selangor',
@@ -18,6 +21,7 @@ class SustainabilityEvent {
     this.imageUrl = '',
     required this.joinedCount,
     this.isActive = true,
+    this.createdBy = '',
   });
 
   final String id;
@@ -26,6 +30,9 @@ class SustainabilityEvent {
   final String description;
   final String benefit;
   final String date;
+  final DateTime? startDate;
+  final DateTime? rawEndDate;
+  final String endDate;
   final String locationName;
   final String address;
   final String state;
@@ -36,6 +43,7 @@ class SustainabilityEvent {
   final String imageUrl;
   final int joinedCount;
   final bool isActive;
+  final String createdBy;
 
   String get requiredMaterialsText {
     if (requiredMaterials.isEmpty) return 'Not specified';
@@ -50,6 +58,22 @@ class SustainabilityEvent {
     return address;
   }
 
+  String get dateText {
+    if (endDate.isEmpty || endDate == date) return date;
+    return '$date - $endDate';
+  }
+
+  bool get isPast {
+    final end = rawEndDate ?? startDate;
+    if (end == null) return false;
+    final today = DateTime.now();
+    final todayOnly = DateTime(today.year, today.month, today.day);
+    final endOnly = DateTime(end.year, end.month, end.day);
+    return endOnly.isBefore(todayOnly);
+  }
+
+  bool isOwnedBy(String userId) => createdBy == userId;
+
   factory SustainabilityEvent.fromFirestore(
     DocumentSnapshot<Map<String, dynamic>> document,
   ) {
@@ -62,6 +86,9 @@ class SustainabilityEvent {
       description: _stringValue(data['description']),
       benefit: _stringValue(data['benefit']),
       date: _dateValue(data['date']),
+      startDate: _dateTimeValue(data['date']),
+      rawEndDate: _dateTimeValue(data['end_date']),
+      endDate: _dateValue(data['end_date']),
       locationName: _stringValue(data['location_name']),
       address: _stringValue(data['address']),
       state: _stringValue(data['state'], fallback: 'Selangor'),
@@ -72,6 +99,7 @@ class SustainabilityEvent {
       imageUrl: _stringValue(data['image_url']),
       joinedCount: _intValue(data['joined_count']),
       isActive: data['is_active'] != false,
+      createdBy: _stringValue(data['created_by']),
     );
   }
 }
@@ -89,6 +117,11 @@ String _dateValue(Object? value) {
     return '${_monthName(date.month)} ${date.day}, ${date.year}';
   }
   return _stringValue(value);
+}
+
+DateTime? _dateTimeValue(Object? value) {
+  if (value is Timestamp) return value.toDate();
+  return null;
 }
 
 String _monthName(int month) {
