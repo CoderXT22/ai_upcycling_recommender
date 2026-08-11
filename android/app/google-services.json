@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "734152721081",
+    "project_id": "ai-based-upcycling-recommender",
+    "storage_bucket": "ai-based-upcycling-recommender.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:734152721081:android:29b0e13c9452ef1b86d168",
+        "android_client_info": {
+          "package_name": "com.example.ai_upcycling_recommender"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDWOrfCO9x3UAdVd_kzLI34hJ8fpRC6R6I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

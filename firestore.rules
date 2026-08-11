@@ -1,0 +1,292 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isOrganisationUser() {
+      return isSignedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'organisation_user';
+    }
+
+    function changedOnly(allowedFields) {
+      return request.resource.data.diff(resource.data).changedKeys()
+        .hasOnly(allowedFields);
+    }
+
+    function validUserRole() {
+      return !('role' in request.resource.data)
+        || request.resource.data.role in ['normal_user', 'organisation_user'];
+    }
+
+    function validProjectSessionStatus() {
+      return request.resource.data.status in [
+        'in_progress',
+        'completed_private',
+        'waiting_verification',
+        'verified',
+        'published',
+        'need_more_evidence',
+      ];
+    }
+
+    function validProductVerificationStatus() {
+      return request.resource.data.verification_status in [
+        'waiting_verification',
+        'verified',
+        'need_more_evidence',
+      ];
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && validUserRole();
+      allow update: if isOwner(userId)
+        && changedOnly([
+          'display_name',
+          'phone_number',
+          'photo_url',
+          'preferred_state',
+          'preferred_area',
+          'last_login_at',
+          'updated_at',
+        ]);
+      allow delete: if false;
+
+      match /saved_guides/{guideId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /completed_guides/{guideId} {
+        allow read, create, update, delete: if isOwner(userId);
+      }
+
+      match /recycling_activities/{activityId} {
+        allow read, create: if isOwner(userId);
+        allow update, delete: if false;
+      }
+
+      match /activity/{activityId} {
+        allow read, create: if isOwner(userId);
+        allow update, delete: if false;
+      }
+    }
+
+    match /organisations/{userId} {
+      allow read: if isSignedIn();
+      allow create, update: if isOwner(userId)
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.organisation_name is string
+        && request.resource.data.organisation_name.size() > 0
+        && request.resource.data.organisation_type is string
+        && request.resource.data.organisation_type.size() > 0
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.email is string
+        && request.resource.data.email.size() > 0
+        && request.resource.data.phone is string
+        && request.resource.data.phone.size() > 0
+        && request.resource.data.location is string
+        && request.resource.data.location.size() > 0;
+      allow delete: if false;
+    }
+
+    match /project_sessions/{sessionId} {
+      allow read: if isSignedIn() && resource.data.user_id == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.guide_id is string
+        && request.resource.data.guide_id.size() > 0
+        && request.resource.data.guide_title is string
+        && request.resource.data.guide_title.size() > 0
+        && validProjectSessionStatus();
+      allow update: if isSignedIn()
+        && resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && changedOnly([
+          'before_image_url',
+          'before_photo_uploaded_at',
+          'status',
+          'completed_at',
+          'submission_id',
+          'published_at',
+          'updated_at',
+        ])
+        && validProjectSessionStatus();
+      allow delete: if false;
+    }
+
+    match /completed_products/{productId} {
+      allow read: if isSignedIn()
+        && (
+          resource.data.user_id == request.auth.uid
+          || (resource.data.is_published_to_hub == true && isOrganisationUser())
+        );
+      allow create: if isSignedIn()
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.project_session_id is string
+        && request.resource.data.project_session_id.size() > 0
+        && request.resource.data.guide_id is string
+        && request.resource.data.guide_id.size() > 0
+        && request.resource.data.product_name is string
+        && request.resource.data.product_name.size() > 0
+        && request.resource.data.materials_used is string
+        && request.resource.data.materials_used.size() > 0
+        && request.resource.data.after_image_url is string
+        && request.resource.data.after_image_url.size() > 0
+        && validProductVerificationStatus()
+        && request.resource.data.is_published_to_hub == false;
+      allow update: if isSignedIn()
+        && resource.data.user_id == request.auth.uid
+        && request.resource.data.user_id == resource.data.user_id
+        && resource.data.is_published_to_hub == false
+        && request.resource.data.is_published_to_hub == true
+        && resource.data.final_verification_score >= 60
+        && changedOnly([
+          'is_published_to_hub',
+          'visible_creator_name',
+          'visible_creator_email',
+          'visible_creator_phone',
+          'published_at',
+          'updated_at',
+        ]);
+      allow delete: if false;
+    }
+
+    match /posts/{postId} {
+      allow read: if isSignedIn() && resource.data.visibility == 'public';
+      allow create: if isSignedIn()
+        && request.resource.data.user_id == request.auth.uid
+        && request.resource.data.visibility == 'public'
+        && request.resource.data.like_count == 0
+        && request.resource.data.comment_count == 0;
+      allow update: if isSignedIn()
+        && changedOnly(['like_count', 'comment_count', 'updated_at']);
+      allow delete: if isSignedIn() && resource.data.user_id == request.auth.uid;
+
+      match /likes/{userId} {
+        allow read: if isSignedIn();
+        allow create: if isOwner(userId)
+          && request.resource.data.user_id == request.auth.uid;
+        allow delete: if isOwner(userId);
+        allow update: if false;
+      }
+
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+          && request.resource.data.user_id == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0;
+        allow update, delete: if false;
+      }
+    }
+
+    match /diy_guides/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /recycling_centres/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /events/{eventId} {
+      allow read: if isSignedIn();
+      allow create: if isOrganisationUser()
+        && request.resource.data.created_by == request.auth.uid
+        && request.resource.data.created_by_role == 'organisation_user'
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.organizer is string
+        && request.resource.data.organizer.size() > 0
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.date is timestamp
+        && request.resource.data.end_date is timestamp
+        && request.resource.data.location_name is string
+        && request.resource.data.location_name.size() > 0
+        && request.resource.data.address is string
+        && request.resource.data.address.size() > 0
+        && request.resource.data.required_materials is list
+        && request.resource.data.required_materials.size() > 0
+        && request.resource.data.official_link is string
+        && request.resource.data.official_link.size() > 0
+        && request.resource.data.joined_count == 0
+        && request.resource.data.is_active == true;
+      allow update: if isOrganisationUser()
+        && resource.data.created_by == request.auth.uid
+        && request.resource.data.created_by == resource.data.created_by
+        && request.resource.data.created_by_role == 'organisation_user'
+        && changedOnly([
+          'title',
+          'organizer',
+          'description',
+          'benefit',
+          'date',
+          'end_date',
+          'location_name',
+          'address',
+          'state',
+          'required_materials',
+          'material_keywords',
+          'category_tags',
+          'official_link',
+          'image_url',
+          'is_active',
+          'updated_at',
+        ])
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.organizer is string
+        && request.resource.data.organizer.size() > 0
+        && request.resource.data.description is string
+        && request.resource.data.description.size() > 0
+        && request.resource.data.date is timestamp
+        && request.resource.data.end_date is timestamp
+        && request.resource.data.location_name is string
+        && request.resource.data.location_name.size() > 0
+        && request.resource.data.address is string
+        && request.resource.data.address.size() > 0
+        && request.resource.data.required_materials is list
+        && request.resource.data.required_materials.size() > 0
+        && request.resource.data.official_link is string
+        && request.resource.data.official_link.size() > 0
+        && request.resource.data.is_active == true;
+      allow delete: if isOrganisationUser()
+        && resource.data.created_by == request.auth.uid;
+    }
+
+    match /education_articles/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /disposal_guides/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /contamination_warnings/{document=**} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /waste_items/{wasteItemId} {
+      allow read, create: if isSignedIn()
+        && request.resource.data.user_id == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
